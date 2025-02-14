@@ -2,13 +2,11 @@ import logging
 import subprocess
 import threading
 import time
-from io import BytesIO
-from typing import Optional
 
 import requests
 import urllib3
-from fastapi import BackgroundTasks, FastAPI
-from PIL import Image
+from fastapi import FastAPI
+
 
 app = FastAPI()
 processes = {}  # Store MediaMTX processes
@@ -21,8 +19,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 # Camera credentials
 CAMERAS = {
-    "cam1": {"ip": "169.254.40.1", "username": "admin", "password": "@Pyronear"},
-    "cam2": {"ip": "169.254.40.2", "username": "admin", "password": "@Pyronear"},
+    "cam1": {"ip": "169.254.40.1", "username": "admin", "password": "***"},
+    "cam2": {"ip": "169.254.40.2", "username": "admin", "password": "***"},
 }
 
 # MediaMTX config files
