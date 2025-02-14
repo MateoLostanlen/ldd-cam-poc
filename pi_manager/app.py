@@ -1,14 +1,14 @@
-from fastapi import FastAPI, BackgroundTasks
-import subprocess
 import logging
+import subprocess
 import threading
 import time
+from io import BytesIO
 from typing import Optional
 
-from io import BytesIO
-from PIL import Image
 import requests
 import urllib3
+from fastapi import BackgroundTasks, FastAPI
+from PIL import Image
 
 app = FastAPI()
 processes = {}  # Store MediaMTX processes
@@ -35,7 +35,9 @@ CONFIG_FILES = {
 class ReolinkCamera:
     """Class to control a Reolink camera."""
 
-    def __init__(self, ip_address: str, username: str, password: str, protocol: str = "https"):
+    def __init__(
+        self, ip_address: str, username: str, password: str, protocol: str = "https"
+    ):
         self.ip_address = ip_address
         self.username = username
         self.password = password
@@ -48,7 +50,13 @@ class ReolinkCamera:
     def move_camera(self, operation: str, speed: int = 10):
         """Moves the camera in a given direction."""
         url = self._build_url("PtzCtrl")
-        data = [{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": operation, "speed": speed}}]
+        data = [
+            {
+                "cmd": "PtzCtrl",
+                "action": 0,
+                "param": {"channel": 0, "op": operation, "speed": speed},
+            }
+        ]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -59,7 +67,15 @@ class ReolinkCamera:
     def zoom(self, position: int):
         """Adjusts the zoom level of the camera."""
         url = self._build_url("StartZoomFocus")
-        data = [{"cmd": "StartZoomFocus", "action": 0, "param": {"ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}}}]
+        data = [
+            {
+                "cmd": "StartZoomFocus",
+                "action": 0,
+                "param": {
+                    "ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}
+                },
+            }
+        ]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -108,9 +124,16 @@ async def start_stream(camera_id: str):
     stopped_cam = stop_any_running_stream()
 
     config_file = CONFIG_FILES[camera_id]
-    processes[camera_id] = subprocess.Popen(["mediamtx", config_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    processes[camera_id] = subprocess.Popen(
+        ["mediamtx", config_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
-    return {"message": f"Stream for {camera_id} started", "previous_stream": stopped_cam if stopped_cam else "No previous stream was running"}
+    return {
+        "message": f"Stream for {camera_id} started",
+        "previous_stream": (
+            stopped_cam if stopped_cam else "No previous stream was running"
+        ),
+    }
 
 
 @app.post("/stop_stream")
@@ -131,7 +154,9 @@ async def stream_status():
     global last_command_time
     last_command_time = time.time()  # Update last command time
 
-    active_streams = [cam_id for cam_id, proc in processes.items() if is_process_running(proc)]
+    active_streams = [
+        cam_id for cam_id, proc in processes.items() if is_process_running(proc)
+    ]
     if active_streams:
         return {"active_streams": active_streams}
     return {"message": "No stream is running"}
@@ -146,7 +171,11 @@ async def move_camera(camera_id: str, direction: str):
     if camera_id not in CAMERAS:
         return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
 
-    cam = ReolinkCamera(CAMERAS[camera_id]["ip"], CAMERAS[camera_id]["username"], CAMERAS[camera_id]["password"])
+    cam = ReolinkCamera(
+        CAMERAS[camera_id]["ip"],
+        CAMERAS[camera_id]["username"],
+        CAMERAS[camera_id]["password"],
+    )
     cam.move_camera(direction, speed=5)
     return {"message": f"Camera {camera_id} moved {direction} at speed 5"}
 
@@ -160,7 +189,11 @@ async def stop_camera(camera_id: str):
     if camera_id not in CAMERAS:
         return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
 
-    cam = ReolinkCamera(CAMERAS[camera_id]["ip"], CAMERAS[camera_id]["username"], CAMERAS[camera_id]["password"])
+    cam = ReolinkCamera(
+        CAMERAS[camera_id]["ip"],
+        CAMERAS[camera_id]["username"],
+        CAMERAS[camera_id]["password"],
+    )
     cam.stop_camera()
     return {"message": f"Camera {camera_id} stopped moving"}
 
@@ -177,6 +210,10 @@ async def zoom_camera(camera_id: str, level: int):
     if not (0 <= level <= 64):
         return {"error": "Zoom level must be between 0 and 64."}
 
-    cam = ReolinkCamera(CAMERAS[camera_id]["ip"], CAMERAS[camera_id]["username"], CAMERAS[camera_id]["password"])
+    cam = ReolinkCamera(
+        CAMERAS[camera_id]["ip"],
+        CAMERAS[camera_id]["username"],
+        CAMERAS[camera_id]["password"],
+    )
     cam.zoom(level)
     return {"message": f"Camera {camera_id} zoom set to {level}"}
