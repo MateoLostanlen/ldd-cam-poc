@@ -7,7 +7,6 @@ import requests
 import urllib3
 from fastapi import FastAPI
 
-
 app = FastAPI()
 processes = {}  # Store MediaMTX processes
 last_command_time = time.time()  # Track the last command time
