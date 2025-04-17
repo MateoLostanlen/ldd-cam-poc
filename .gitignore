@@ -148,13 +148,6 @@ client/pyroclient/version.py
 _build/
 *.sql
 
-# Poetry
-requirements.txt
-src/app/requirements.txt
-src/requirements.txt
-src/requirements-dev.txt
-
-
 # config gile
 pi_manager/config.yaml
 pi_manager/mediamtx_1_main.yml
