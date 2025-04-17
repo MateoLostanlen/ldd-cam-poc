@@ -2,7 +2,7 @@ import logging
 import subprocess
 import threading
 import time
-
+import yaml
 import requests
 import urllib3
 from fastapi import FastAPI
@@ -16,17 +16,13 @@ timer_thread = None  # Background thread for checking inactivity
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.DEBUG)
 
-# Camera credentials
-CAMERAS = {
-    "cam1": {"ip": "169.254.40.1", "username": "admin", "password": "***"},
-    "cam2": {"ip": "169.254.40.2", "username": "admin", "password": "***"},
-}
+# Load the YAML configuration file
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
-# MediaMTX config files
-CONFIG_FILES = {
-    "cam1": "/home/pi/mediamtx/mediamtx_1_main.yml",
-    "cam2": "/home/pi/mediamtx/mediamtx_2_main.yml",
-}
+# Access the data
+CAMERAS = config["cameras"]
+CONFIG_FILES = config["config_files"]
 
 
 class ReolinkCamera:
