@@ -157,3 +157,4 @@ src/requirements-dev.txt
 
 # config gile
 pi_manager/config.yaml
+pi_manager/mediamtx_1_main.yml

@@ -5,8 +5,10 @@ from dash import Input, Output, State, dcc, html
 
 pyro_logo = "https://pyronear.org/img/logo_letters_orange.png"
 
+TARGET_IP = "192.168.255.146"
+
 # FastAPI server address
-FASTAPI_URL = "http://192.168.1.20:8000"
+FASTAPI_URL = f"http://{TARGET_IP}:8000"
 
 # Camera Selection
 CAMERAS = {"Camera 1": "cam1", "Camera 2": "cam2"}
@@ -34,7 +36,7 @@ app.layout = dbc.Container(
         Navbar(),
         html.H3("Live Camera Feed", className="text-center mb-3"),
         html.Iframe(
-            src="http://192.168.1.20:8889/cam",
+            src=f"http://{TARGET_IP}:8889/cam",
             style={
                 "width": "100%",
                 "height": "500px",
@@ -202,4 +204,4 @@ def control_camera(
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True, host="0.0.0.0", port=8050)
+    app.run(debug=True, host="0.0.0.0", port=8050)
