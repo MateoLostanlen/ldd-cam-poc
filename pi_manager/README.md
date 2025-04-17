@@ -31,6 +31,15 @@ Make sure you have your MediaMTX configuration files for each camera:
 - `cam1`: `/home/pi/ldd-cam-poc/pi_manager/mediamtx_1_main.yml`
 - `cam2`: `/home/pi/ldd-cam-poc/pi_manager/mediamtx_2_main.yml`
 
+Here is an example:
+
+```yml
+paths:
+  cam:
+    source: rtsp://admin:@Pyronear@169.254.40.1:554/h264Preview_01_main
+    sourceOnDemand: yes       # Fetch the source only when there's a viewer
+```
+
 You can test the config directly by running:
 
 ```bash
