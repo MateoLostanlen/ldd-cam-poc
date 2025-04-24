@@ -2,10 +2,12 @@ import dash
 import dash_bootstrap_components as dbc
 import requests
 from dash import Input, Output, State, dcc, html
+from dash_extensions import EventListener
+
 
 pyro_logo = "https://pyronear.org/img/logo_letters_orange.png"
 
-TARGET_IP = "192.168.255.146"
+TARGET_IP = "192.168.1.104"
 
 # FastAPI server address
 FASTAPI_URL = f"http://{TARGET_IP}:8000"
@@ -30,115 +32,224 @@ def Navbar():
 
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-
 app.layout = dbc.Container(
     [
         Navbar(),
-        html.H3("Live Camera Feed", className="text-center mb-3"),
-        html.Iframe(
-            src=f"http://{TARGET_IP}:8889/cam",
-            style={
-                "width": "100%",
-                "height": "500px",
-                "border": "none",
-                "borderRadius": "10px",
-            },
-            className="mb-4 shadow-sm",
-        ),
-        html.H4("Stream & Camera Controls", className="text-center mt-3"),
-        # Camera Selection Dropdown
         dbc.Row(
             [
-                dbc.Col(html.Label("Select Camera:"), width=2),
+                # IFRAME VIDEO (LEFT)
                 dbc.Col(
-                    dcc.Dropdown(
-                        id="camera-select",
-                        options=[
-                            {"label": name, "value": cam_id}
-                            for name, cam_id in CAMERAS.items()
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Iframe(
+                                        id="video-stream",
+                                        src=f"http://{TARGET_IP}:8889/cam",
+                                        style={
+                                            "position": "absolute",
+                                            "top": "0",
+                                            "left": "0",
+                                            "width": "100%",
+                                            "height": "100%",
+                                            "border": "none",
+                                            "borderRadius": "10px",
+                                            "display": "block",
+                                        },
+                                    ),
+                                    EventListener(
+                                        id="click-listener",
+                                        children=html.Div(
+                                            id="click-overlay",
+                                            n_clicks=0,
+                                            style={
+                                                "position": "absolute",
+                                                "top": 0,
+                                                "left": 0,
+                                                "width": "100%",
+                                                "height": "100%",
+                                                "border": "2px dashed red",
+                                                "zIndex": 2,
+                                                "cursor": "crosshair",
+                                                "backgroundColor": "rgba(255, 255, 255, 0.01)",
+                                            },
+                                        ),
+                                        events=[{"event": "pointerdown"}],
+                                    ),
+                                ],
+                                style={
+                                    "position": "relative",
+                                    "height": "500px",
+                                    "width": f"{round(500 * 16 / 9)}px",  # 16:9 aspect ratio width for 500px height = ~889px
+                                    "overflow": "hidden",
+                                    "margin": "auto",
+                                },
+                            ),
                         ],
-                        value="cam1",
-                        clearable=False,
+                        id="video-container",
                     ),
-                    width=4,
+                    md=8,
+                ),
+                # CAMERA CONTROLS (RIGHT)
+                dbc.Col(
+                    [
+                        html.H5(
+                            "Stream & Camera Controls", className="text-center mb-3"
+                        ),
+                        html.Label("Select Camera:"),
+                        dcc.Dropdown(
+                            id="camera-select",
+                            options=[
+                                {"label": name, "value": cam_id}
+                                for name, cam_id in CAMERAS.items()
+                            ],
+                            value="cam1",
+                            clearable=False,
+                            className="mb-3",
+                        ),
+                        dbc.Button(
+                            "Start Stream",
+                            id="start-stream",
+                            color="success",
+                            className="mb-2 w-100",
+                        ),
+                        dbc.Button(
+                            "Stop Stream",
+                            id="stop-stream",
+                            color="danger",
+                            className="mb-2 w-100",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(),
+                                dbc.Col(
+                                    dbc.Button(
+                                        "↑", id="move-up", color="primary", size="lg"
+                                    ),
+                                    width="auto",
+                                ),
+                                dbc.Col(),
+                            ],
+                            className="mb-2 text-center",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    dbc.Button(
+                                        "←", id="move-left", color="primary", size="lg"
+                                    ),
+                                    width="auto",
+                                ),
+                                dbc.Col(
+                                    dbc.Button(
+                                        "STOP",
+                                        id="stop-move",
+                                        color="danger",
+                                        size="lg",
+                                    ),
+                                    width="auto",
+                                ),
+                                dbc.Col(
+                                    dbc.Button(
+                                        "→", id="move-right", color="primary", size="lg"
+                                    ),
+                                    width="auto",
+                                ),
+                            ],
+                            className="mb-2 text-center",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(),
+                                dbc.Col(
+                                    dbc.Button(
+                                        "↓", id="move-down", color="primary", size="lg"
+                                    ),
+                                    width="auto",
+                                ),
+                                dbc.Col(),
+                            ],
+                            className="mb-3 text-center",
+                        ),
+                        html.Label("Zoom Level:"),
+                        dcc.Slider(
+                            id="zoom-slider",
+                            min=0,
+                            max=64,
+                            step=1,
+                            marks={0: "0", 32: "32", 64: "64"},
+                            value=32,
+                        ),
+                        dbc.Button(
+                            "Set Zoom",
+                            id="set-zoom",
+                            color="success",
+                            className="mb-2 w-100",
+                        ),
+                    ],
+                    md=4,
                 ),
             ],
-            className="mb-3",
+            className="mb-4",
         ),
-        # Start/Stop Stream Buttons
-        dbc.Row(
-            [
-                dbc.Col(
-                    dbc.Button("Start Stream", id="start-stream", color="success"),
-                    width=3,
-                ),
-                dbc.Col(
-                    dbc.Button("Stop Stream", id="stop-stream", color="danger"), width=3
-                ),
-            ],
-            className="mb-3 text-center",
-        ),
-        # PTZ Control Buttons
-        dbc.Row(
-            [
-                dbc.Col(width=3),
-                dbc.Col(
-                    dbc.Button("↑", id="move-up", color="primary", size="lg"), width=2
-                ),
-                dbc.Col(width=3),
-            ],
-            className="mb-2 text-center",
-        ),
-        dbc.Row(
-            [
-                dbc.Col(
-                    dbc.Button("←", id="move-left", color="primary", size="lg"),
-                    width=2,
-                    className="text-right",
-                ),
-                dbc.Col(
-                    dbc.Button("STOP", id="stop-move", color="danger", size="lg"),
-                    width=2,
-                    className="text-center",
-                ),
-                dbc.Col(
-                    dbc.Button("→", id="move-right", color="primary", size="lg"),
-                    width=2,
-                    className="text-left",
-                ),
-            ],
-            className="mb-2 text-center",
-        ),
-        dbc.Row(
-            [
-                dbc.Col(width=3),
-                dbc.Col(
-                    dbc.Button("↓", id="move-down", color="primary", size="lg"), width=2
-                ),
-                dbc.Col(width=3),
-            ],
-            className="mb-3 text-center",
-        ),
-        # Zoom Slider
-        html.Label("Zoom Level:", className="mt-3"),
-        dcc.Slider(
-            id="zoom-slider",
-            min=0,
-            max=64,
-            step=1,
-            marks={0: "0", 32: "32", 64: "64"},
-            value=32,
-        ),
-        dbc.Button("Set Zoom", id="set-zoom", color="success", className="mt-2"),
-        # Output message
         html.Div(
             id="output-message",
-            className="mt-3 text-center",
+            className="text-center",
             style={"fontWeight": "bold"},
         ),
+        html.Div(
+            id="click-coordinates",
+            className="text-center",
+            style={"fontWeight": "bold", "color": "green"},
+        ),
+        dcc.Store(id="click-coords"),
     ],
     fluid=True,
 )
+
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return window.lastClick || null;
+    }
+    """,
+    Output("click-coords", "data"),
+    Input("click-overlay", "n_clicks"),
+)
+
+app.index_string = """
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>Pyronear Camera</title>
+        {%favicon%}
+        {%css%}
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                document.body.addEventListener("click", function (e) {
+                    const rect = e.target.getBoundingClientRect();
+                    window.lastClick = {
+                        offsetX: Math.round(e.clientX - rect.left),
+                        offsetY: Math.round(e.clientY - rect.top),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                    };
+                });
+            });
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+"""
 
 
 # 📌 Function to Send API Requests
@@ -201,6 +312,19 @@ def control_camera(
         return send_api_request(f"/zoom/{camera_id}/{zoom_level}")
 
     return ""
+
+
+@app.callback(
+    Output("click-coordinates", "children"),
+    Input("click-coords", "data"),
+    prevent_initial_call=True,
+)
+def show_coords(data):
+    if not data:
+        return ""
+    x_percent = round((data["offsetX"] / data["width"]) * 100, 2)
+    y_percent = round((data["offsetY"] / data["height"]) * 100, 2)
+    return f"Clicked at x={data['offsetX']}px ({x_percent}%), y={data['offsetY']}px ({y_percent}%)"
 
 
 if __name__ == "__main__":
