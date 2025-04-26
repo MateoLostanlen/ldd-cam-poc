@@ -8,14 +8,9 @@ import urllib3
 from fastapi import FastAPI
 
 app = FastAPI()
-processes = {}  # Store MediaMTX processes
+processes = {}  # Store FFmpeg processes
 last_command_time = time.time()  # Track the last command time
 timer_thread = None  # Background thread for checking inactivity
-
-H_FOV = 54.2  # Horizontal field of view in degrees
-V_FOV = 41.7  # Vertical field of view in degrees
-SPEED = 1.4   # Movement speed in degrees per second
-
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -27,15 +22,12 @@ with open("config.yaml", "r") as file:
 
 # Access the data
 CAMERAS = config["cameras"]
-CONFIG_FILES = config["streams"]
-
+STREAMS = config["streams"]  # New structure: streams settings
 
 class ReolinkCamera:
     """Class to control a Reolink camera."""
 
-    def __init__(
-        self, ip_address: str, username: str, password: str, protocol: str = "https"
-    ):
+    def __init__(self, ip_address: str, username: str, password: str, protocol: str = "https"):
         self.ip_address = ip_address
         self.username = username
         self.password = password
@@ -48,13 +40,7 @@ class ReolinkCamera:
     def move_camera(self, operation: str, speed: int = 10):
         """Moves the camera in a given direction."""
         url = self._build_url("PtzCtrl")
-        data = [
-            {
-                "cmd": "PtzCtrl",
-                "action": 0,
-                "param": {"channel": 0, "op": operation, "speed": speed},
-            }
-        ]
+        data = [{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": operation, "speed": speed}}]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -65,15 +51,7 @@ class ReolinkCamera:
     def zoom(self, position: int):
         """Adjusts the zoom level of the camera."""
         url = self._build_url("StartZoomFocus")
-        data = [
-            {
-                "cmd": "StartZoomFocus",
-                "action": 0,
-                "param": {
-                    "ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}
-                },
-            }
-        ]
+        data = [{"cmd": "StartZoomFocus", "action": 0, "param": {"ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}}}]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -82,55 +60,72 @@ def is_process_running(proc):
     """Check if a process is still running."""
     return proc and proc.poll() is None
 
-
 def stop_any_running_stream():
     """Stops any currently running stream."""
     for cam_id, proc in list(processes.items()):
         if is_process_running(proc):
-            proc.terminate()  # Graceful shutdown
-            proc.wait()  # Wait for termination
-            del processes[cam_id]  # Remove from tracking
-            return cam_id  # Return the stopped stream
-
+            proc.terminate()
+            proc.wait()
+            del processes[cam_id]
+            return cam_id
+    return None
 
 def stop_stream_if_idle():
     """Background task that stops the stream if no command is received for 60 seconds."""
     global last_command_time
     while True:
-        time.sleep(60)  # Check every 60 seconds
+        time.sleep(60)
         if time.time() - last_command_time > 60:
             stopped_cam = stop_any_running_stream()
             if stopped_cam:
                 logging.info(f"Stream for {stopped_cam} stopped due to inactivity")
 
-
-# Start the background thread for monitoring inactivity
+# Start background thread
 timer_thread = threading.Thread(target=stop_stream_if_idle, daemon=True)
 timer_thread.start()
 
 
 @app.post("/start_stream/{camera_id}")
 async def start_stream(camera_id: str):
-    """Starts a MediaMTX stream for a given camera, stopping any active stream first."""
+    """Starts an FFmpeg stream for a given camera."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
-    if camera_id not in CONFIG_FILES:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+    if camera_id not in STREAMS:
+        return {"error": "Invalid camera ID."}
 
-    # Stop any existing stream before starting a new one
+    # Stop any existing stream
     stopped_cam = stop_any_running_stream()
 
-    config_file = CONFIG_FILES[camera_id]
-    processes[camera_id] = subprocess.Popen(
-        ["mediamtx", config_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
+    stream_info = STREAMS[camera_id]
+    input_url = stream_info["input_url"]
+    output_url = stream_info["output_url"]
+
+    command = [
+        "ffmpeg",
+        "-fflags", "discardcorrupt+nobuffer",  # Ignorer paquets corrompus, réduire bufferisation
+        "-flags", "low_delay",                 # Mode faible latence
+        "-rtsp_transport", "udp",               # RTSP en UDP (plus rapide mais risque de pertes)
+        "-i", input_url,                        # URL RTSP de la caméra
+        "-c:v", "libx264",                      # Encoder vidéo en H.264 (x264)
+        "-bf", "0",                              # Pas de B-frames (IP only) pour réduire la latence
+        "-b:v", "500k",                         # Bitrate vidéo à 500 kbps
+        "-r", "15",                             # Framerate à 10 fps
+        "-preset", "veryfast",                  # Preset x264 rapide (faible usage CPU)
+        "-tune", "zerolatency",                 # Optimisation x264 pour la latence minimale
+        "-s", "640x360",                        # Redimensionner la vidéo en 640x360
+        "-an",                                  # Supprimer l'audio
+        "-f", "mpegts",                         # Format de sortie MPEG-TS (nécessaire pour SRT)
+        output_url                              # URL de destination SRT
+    ]
+
+
+
+    processes[camera_id] = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     return {
         "message": f"Stream for {camera_id} started",
-        "previous_stream": (
-            stopped_cam if stopped_cam else "No previous stream was running"
-        ),
+        "previous_stream": (stopped_cam if stopped_cam else "No previous stream was running"),
     }
 
 
@@ -138,7 +133,7 @@ async def start_stream(camera_id: str):
 async def stop_stream():
     """Stops any active stream."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     stopped_cam = stop_any_running_stream()
     if stopped_cam:
@@ -150,19 +145,18 @@ async def stop_stream():
 async def stream_status():
     """Returns which stream is currently running."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
-    active_streams = [
-        cam_id for cam_id, proc in processes.items() if is_process_running(proc)
-    ]
+    active_streams = [cam_id for cam_id, proc in processes.items() if is_process_running(proc)]
     if active_streams:
         return {"active_streams": active_streams}
     return {"message": "No stream is running"}
 
 
-@app.post("/move/{camera_id}/{direction}")
-async def move_camera(camera_id: str, direction: str):
-    """Moves the camera in the specified direction (Up, Right, Down, Left)."""
+
+@app.post("/move/{camera_id}/{direction}/{speed}")
+async def move_camera(camera_id: str, direction: str, speed: int):
+    """Moves the camera in the specified direction (Up, Right, Down, Left) with a given speed."""
     global last_command_time
     last_command_time = time.time()  # Update last command time
 
@@ -174,18 +168,18 @@ async def move_camera(camera_id: str, direction: str):
         CAMERAS[camera_id]["username"],
         CAMERAS[camera_id]["password"],
     )
-    cam.move_camera(direction, speed=5)
-    return {"message": f"Camera {camera_id} moved {direction} at speed 5"}
+    cam.move_camera(direction, speed=speed)
+    return {"message": f"Camera {camera_id} moved {direction} at speed {speed}"}
 
 
 @app.post("/stop/{camera_id}")
 async def stop_camera(camera_id: str):
     """Stops the camera movement."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     if camera_id not in CAMERAS:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+        return {"error": "Invalid camera ID."}
 
     cam = ReolinkCamera(
         CAMERAS[camera_id]["ip"],
@@ -200,10 +194,10 @@ async def stop_camera(camera_id: str):
 async def zoom_camera(camera_id: str, level: int):
     """Adjusts the camera zoom level (0 to 64)."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     if camera_id not in CAMERAS:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+        return {"error": "Invalid camera ID."}
 
     if not (0 <= level <= 64):
         return {"error": "Zoom level must be between 0 and 64."}
@@ -215,72 +209,3 @@ async def zoom_camera(camera_id: str, level: int):
     )
     cam.zoom(level)
     return {"message": f"Camera {camera_id} zoom set to {level}"}
-
-
-import logging
-
-@app.post("/move_to/{camera_id}")
-async def move_to(camera_id: str, data: dict):
-    """
-    Moves the camera toward a target percentage position (x%, y%) in the image.
-    The movement is horizontal first, then vertical.
-    """
-    global last_command_time
-    last_command_time = time.time()
-
-    if camera_id not in CAMERAS:
-        return {"error": "Invalid camera ID."}
-
-    x_percent = data.get("x")
-    y_percent = data.get("y")
-
-    if x_percent is None or y_percent is None:
-        return {"error": "Missing x or y coordinates."}
-
-    dx = (x_percent - 50) / 100 * H_FOV  # degrees
-    dy = (y_percent - 50) / 100 * V_FOV  # degrees
-
-    t_x = abs(dx) / SPEED
-    t_y = abs(dy) / SPEED
-
-    direction_x = "Right" if dx > 0 else "Left"
-    direction_y = "Down" if dy > 0 else "Up"
-
-    logging.debug(f"[{camera_id}] x={x_percent}%, y={y_percent}%")
-    logging.debug(f"[{camera_id}] dx={dx:.2f}°, dy={dy:.2f}°")
-    logging.debug(f"[{camera_id}] direction_x={direction_x}, direction_y={direction_y}")
-    logging.debug(f"[{camera_id}] t_x={t_x:.2f}s, t_y={t_y:.2f}s")
-
-    cam = ReolinkCamera(
-        CAMERAS[camera_id]["ip"],
-        CAMERAS[camera_id]["username"],
-        CAMERAS[camera_id]["password"],
-    )
-
-    # Horizontal move
-    if abs(dx) > 0.5:  # Only move if > 0.5° to avoid jitter
-        cam.move_camera(direction_x, speed=1)
-        time.sleep(t_x)
-        cam.stop_camera()
-    else:
-        logging.debug(f"[{camera_id}] Skipped horizontal move (dx too small: {dx:.2f}°)")
-
-    # Vertical move
-    if abs(dy) > 0.5:
-        cam.move_camera(direction_y, speed=1)
-        time.sleep(t_y)
-        cam.stop_camera()
-    else:
-        logging.debug(f"[{camera_id}] Skipped vertical move (dy too small: {dy:.2f}°)")
-
-    return {
-        "message": f"Moved camera {camera_id} to {x_percent}%, {y_percent}%",
-        "details": {
-            "dx": round(dx, 2),
-            "dy": round(dy, 2),
-            "t_x": round(t_x, 2),
-            "t_y": round(t_y, 2),
-            "dir_x": direction_x,
-            "dir_y": direction_y,
-        },
-    }
