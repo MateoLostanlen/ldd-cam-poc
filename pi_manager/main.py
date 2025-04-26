@@ -12,6 +12,11 @@ processes = {}  # Store MediaMTX processes
 last_command_time = time.time()  # Track the last command time
 timer_thread = None  # Background thread for checking inactivity
 
+H_FOV = 54.2  # Horizontal field of view in degrees
+V_FOV = 41.7  # Vertical field of view in degrees
+SPEED = 1.4   # Movement speed in degrees per second
+
+
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.DEBUG)
@@ -210,3 +215,72 @@ async def zoom_camera(camera_id: str, level: int):
     )
     cam.zoom(level)
     return {"message": f"Camera {camera_id} zoom set to {level}"}
+
+
+import logging
+
+@app.post("/move_to/{camera_id}")
+async def move_to(camera_id: str, data: dict):
+    """
+    Moves the camera toward a target percentage position (x%, y%) in the image.
+    The movement is horizontal first, then vertical.
+    """
+    global last_command_time
+    last_command_time = time.time()
+
+    if camera_id not in CAMERAS:
+        return {"error": "Invalid camera ID."}
+
+    x_percent = data.get("x")
+    y_percent = data.get("y")
+
+    if x_percent is None or y_percent is None:
+        return {"error": "Missing x or y coordinates."}
+
+    dx = (x_percent - 50) / 100 * H_FOV  # degrees
+    dy = (y_percent - 50) / 100 * V_FOV  # degrees
+
+    t_x = abs(dx) / SPEED
+    t_y = abs(dy) / SPEED
+
+    direction_x = "Right" if dx > 0 else "Left"
+    direction_y = "Down" if dy > 0 else "Up"
+
+    logging.debug(f"[{camera_id}] x={x_percent}%, y={y_percent}%")
+    logging.debug(f"[{camera_id}] dx={dx:.2f}°, dy={dy:.2f}°")
+    logging.debug(f"[{camera_id}] direction_x={direction_x}, direction_y={direction_y}")
+    logging.debug(f"[{camera_id}] t_x={t_x:.2f}s, t_y={t_y:.2f}s")
+
+    cam = ReolinkCamera(
+        CAMERAS[camera_id]["ip"],
+        CAMERAS[camera_id]["username"],
+        CAMERAS[camera_id]["password"],
+    )
+
+    # Horizontal move
+    if abs(dx) > 0.5:  # Only move if > 0.5° to avoid jitter
+        cam.move_camera(direction_x, speed=1)
+        time.sleep(t_x)
+        cam.stop_camera()
+    else:
+        logging.debug(f"[{camera_id}] Skipped horizontal move (dx too small: {dx:.2f}°)")
+
+    # Vertical move
+    if abs(dy) > 0.5:
+        cam.move_camera(direction_y, speed=1)
+        time.sleep(t_y)
+        cam.stop_camera()
+    else:
+        logging.debug(f"[{camera_id}] Skipped vertical move (dy too small: {dy:.2f}°)")
+
+    return {
+        "message": f"Moved camera {camera_id} to {x_percent}%, {y_percent}%",
+        "details": {
+            "dx": round(dx, 2),
+            "dy": round(dy, 2),
+            "t_x": round(t_x, 2),
+            "t_y": round(t_y, 2),
+            "dir_x": direction_x,
+            "dir_y": direction_y,
+        },
+    }
