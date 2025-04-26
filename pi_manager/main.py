@@ -27,7 +27,7 @@ with open("config.yaml", "r") as file:
 
 # Access the data
 CAMERAS = config["cameras"]
-CONFIG_FILES = config["config_files"]
+CONFIG_FILES = config["streams"]
 
 
 class ReolinkCamera:
