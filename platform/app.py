@@ -18,8 +18,28 @@ STREAM_NAME = os.getenv("STREAM_NAME")
 pyro_logo = "https://pyronear.org/img/logo_letters_orange.png"
 TARGET_IP = "192.168.1.28"
 STREAM_URL = f"{MEDIAMTX_SERVER_IP}:8889/{STREAM_NAME}"
-FASTAPI_URL = f"http://{TARGET_IP}:8000"
-CAMERAS = {"Camera 1": "cam1", "Camera 2": "cam2"}
+FASTAPI_URL = f"http://{TARGET_IP}:8081"
+# Dynamically fetch camera infos
+def fetch_cameras():
+    try:
+        response = requests.get(f"{FASTAPI_URL}/camera_infos")
+        response.raise_for_status()
+        data = response.json()
+        cameras = {}
+        for cam in data.get("cameras", []):
+            name = cam.get("name", f"Camera {cam.get('id')}")
+            ip = cam.get("ip")
+            if name and ip:
+                cameras[name] = ip
+        return cameras
+    except Exception as e:
+        print(f"Error fetching cameras: {e}")
+        return {}
+
+# Create CAMERAS dictionary
+CAMERAS = fetch_cameras()
+
+print("Loaded cameras:", CAMERAS)
 
 site_lat = 48.426746125557
 site_lon = 2.71087590966019
@@ -280,14 +300,14 @@ app.layout = html.Div(
                     [
                         html.Div(
                             dcc.Dropdown(
-                                id="camera-select",
-                                options=[
-                                    {"label": name, "value": cam_id}
-                                    for name, cam_id in CAMERAS.items()
-                                ],
-                                value="cam1",
-                                clearable=False,
-                                className="mb-2",
+                            id="camera-select",
+                            options=[
+                                {"label": name, "value": cam_id}
+                                for name, cam_id in CAMERAS.items()
+                            ],
+                            value=list(CAMERAS.values())[0] if CAMERAS else None,  # Pick first available camera
+                            clearable=False,
+                            className="mb-2",
                                 style={
                                     "border": "none",  # No border for the dropdown itself
                                     "borderRadius": "8px",  # Still rounded inside
@@ -459,7 +479,7 @@ def control_camera(
     elif button_id in direction_map:
         direction = direction_map[button_id]
         if direction != "Stop":
-            true_speed = int(move_speed / 10)
+            true_speed = int(move_speed / 10) + 1 
             return send_api_request(f"/move/{camera_id}/{direction}/{true_speed}")
         else:
             return send_api_request(f"/stop/{camera_id}")
