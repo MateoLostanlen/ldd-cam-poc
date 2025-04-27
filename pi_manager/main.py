@@ -34,6 +34,7 @@ load_dotenv()
 CAM_USER = os.getenv("CAM_USER")
 CAM_PWD = os.getenv("CAM_PWD")
 MEDIAMTX_SERVER_IP = os.getenv("MEDIAMTX_SERVER_IP")
+STREAM_NAME = os.getenv("STREAM_NAME")
 
 # Load camera credentials
 with open("credentials.json", "r") as file:
@@ -54,7 +55,7 @@ STREAMS = {
             f"pkt_size={SRT_SETTINGS['pkt_size']}&"
             f"mode={SRT_SETTINGS['mode']}&"
             f"latency={SRT_SETTINGS['latency']}&"
-            f"streamid={SRT_SETTINGS['streamid_prefix']}:{cam_id}"
+            f"streamid={SRT_SETTINGS['streamid_prefix']}:{STREAM_NAME}"
         ),
     }
     for cam_id, cam_info in CAMERAS.items()
