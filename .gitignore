@@ -149,5 +149,4 @@ _build/
 *.sql
 
 # config gile
-pi_manager/config.yaml
-pi_manager/mediamtx_1_main.yml
+pi_manager/.env

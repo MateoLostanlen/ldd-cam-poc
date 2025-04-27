@@ -6,9 +6,12 @@ import yaml
 import requests
 import urllib3
 from fastapi import FastAPI
+from dotenv import load_dotenv
+import os
+import json
 
 app = FastAPI()
-processes = {}  # Store MediaMTX processes
+processes = {}  # Store FFmpeg processes
 last_command_time = time.time()  # Track the last command time
 timer_thread = None  # Background thread for checking inactivity
 
@@ -16,13 +19,47 @@ timer_thread = None  # Background thread for checking inactivity
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.DEBUG)
 
-# Load the YAML configuration file
-with open("config.yaml", "r") as file:
-    config = yaml.safe_load(file)
 
-# Access the data
-CAMERAS = config["cameras"]
-CONFIG_FILES = config["config_files"]
+# Load ffmpeg config (YAML)
+with open("ffmpeg_config.yaml", "r") as file:
+    ffmpeg_config = yaml.safe_load(file)
+
+SRT_SETTINGS = ffmpeg_config["srt_settings"]
+FFMPEG_PARAMS = ffmpeg_config["ffmpeg_params"]
+
+
+# Load environment variables
+load_dotenv()
+
+CAM_USER = os.getenv("CAM_USER")
+CAM_PWD = os.getenv("CAM_PWD")
+MEDIAMTX_SERVER_IP = os.getenv("MEDIAMTX_SERVER_IP")
+STREAM_NAME = os.getenv("STREAM_NAME")
+
+# Load camera credentials
+with open("credentials.json", "r") as file:
+    credentials = json.load(file)
+
+# Build cameras dictionary
+CAMERAS = {
+    cam_id: {"ip": ip, "username": CAM_USER, "password": CAM_PWD}
+    for cam_id, ip in credentials["cameras"].items()
+}
+
+# Build streams dictionary using config values
+STREAMS = {
+    cam_id: {
+        "input_url": f"rtsp://{CAM_USER}:{CAM_PWD}@{cam_info['ip']}/h264Preview_01_main",
+        "output_url": (
+            f"srt://{MEDIAMTX_SERVER_IP}:{SRT_SETTINGS['port_start']}?"
+            f"pkt_size={SRT_SETTINGS['pkt_size']}&"
+            f"mode={SRT_SETTINGS['mode']}&"
+            f"latency={SRT_SETTINGS['latency']}&"
+            f"streamid={SRT_SETTINGS['streamid_prefix']}:{STREAM_NAME}"
+        ),
+    }
+    for cam_id, cam_info in CAMERAS.items()
+}
 
 
 class ReolinkCamera:
@@ -82,43 +119,79 @@ def stop_any_running_stream():
     """Stops any currently running stream."""
     for cam_id, proc in list(processes.items()):
         if is_process_running(proc):
-            proc.terminate()  # Graceful shutdown
-            proc.wait()  # Wait for termination
-            del processes[cam_id]  # Remove from tracking
-            return cam_id  # Return the stopped stream
+            proc.terminate()
+            proc.wait()
+            del processes[cam_id]
+            return cam_id
+    return None
 
 
 def stop_stream_if_idle():
     """Background task that stops the stream if no command is received for 60 seconds."""
     global last_command_time
     while True:
-        time.sleep(60)  # Check every 60 seconds
+        time.sleep(60)
         if time.time() - last_command_time > 60:
             stopped_cam = stop_any_running_stream()
             if stopped_cam:
                 logging.info(f"Stream for {stopped_cam} stopped due to inactivity")
 
 
-# Start the background thread for monitoring inactivity
+# Start background thread
 timer_thread = threading.Thread(target=stop_stream_if_idle, daemon=True)
 timer_thread.start()
 
 
 @app.post("/start_stream/{camera_id}")
 async def start_stream(camera_id: str):
-    """Starts a MediaMTX stream for a given camera, stopping any active stream first."""
+    """Starts an FFmpeg stream for a given camera."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
-    if camera_id not in CONFIG_FILES:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+    if camera_id not in STREAMS:
+        return {"error": "Invalid camera ID."}
 
-    # Stop any existing stream before starting a new one
+    # Stop any existing stream
     stopped_cam = stop_any_running_stream()
 
-    config_file = CONFIG_FILES[camera_id]
+    stream_info = STREAMS[camera_id]
+    input_url = stream_info["input_url"]
+    output_url = stream_info["output_url"]
+
+    # Build ffmpeg command dynamically based on config
+    command = ["ffmpeg"]
+
+    if FFMPEG_PARAMS["discardcorrupt"]:
+        command += ["-fflags", "discardcorrupt+nobuffer"]
+    if FFMPEG_PARAMS["low_delay"]:
+        command += ["-flags", "low_delay"]
+
+    command += [
+        "-rtsp_transport",
+        FFMPEG_PARAMS["rtsp_transport"],
+        "-i",
+        input_url,
+        "-c:v",
+        FFMPEG_PARAMS["video_codec"],
+        "-bf",
+        str(FFMPEG_PARAMS["b_frames"]),
+        "-b:v",
+        FFMPEG_PARAMS["bitrate"],
+        "-r",
+        str(FFMPEG_PARAMS["framerate"]),
+        "-preset",
+        FFMPEG_PARAMS["preset"],
+        "-tune",
+        FFMPEG_PARAMS["tune"],
+    ]
+
+    if FFMPEG_PARAMS["audio_disabled"]:
+        command.append("-an")
+
+    command += ["-f", FFMPEG_PARAMS["output_format"], output_url]
+
     processes[camera_id] = subprocess.Popen(
-        ["mediamtx", config_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
 
     return {
@@ -133,7 +206,7 @@ async def start_stream(camera_id: str):
 async def stop_stream():
     """Stops any active stream."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     stopped_cam = stop_any_running_stream()
     if stopped_cam:
@@ -145,7 +218,7 @@ async def stop_stream():
 async def stream_status():
     """Returns which stream is currently running."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     active_streams = [
         cam_id for cam_id, proc in processes.items() if is_process_running(proc)
@@ -155,9 +228,9 @@ async def stream_status():
     return {"message": "No stream is running"}
 
 
-@app.post("/move/{camera_id}/{direction}")
-async def move_camera(camera_id: str, direction: str):
-    """Moves the camera in the specified direction (Up, Right, Down, Left)."""
+@app.post("/move/{camera_id}/{direction}/{speed}")
+async def move_camera(camera_id: str, direction: str, speed: int):
+    """Moves the camera in the specified direction (Up, Right, Down, Left) with a given speed."""
     global last_command_time
     last_command_time = time.time()  # Update last command time
 
@@ -169,18 +242,18 @@ async def move_camera(camera_id: str, direction: str):
         CAMERAS[camera_id]["username"],
         CAMERAS[camera_id]["password"],
     )
-    cam.move_camera(direction, speed=5)
-    return {"message": f"Camera {camera_id} moved {direction} at speed 5"}
+    cam.move_camera(direction, speed=speed)
+    return {"message": f"Camera {camera_id} moved {direction} at speed {speed}"}
 
 
 @app.post("/stop/{camera_id}")
 async def stop_camera(camera_id: str):
     """Stops the camera movement."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     if camera_id not in CAMERAS:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+        return {"error": "Invalid camera ID."}
 
     cam = ReolinkCamera(
         CAMERAS[camera_id]["ip"],
@@ -195,10 +268,10 @@ async def stop_camera(camera_id: str):
 async def zoom_camera(camera_id: str, level: int):
     """Adjusts the camera zoom level (0 to 64)."""
     global last_command_time
-    last_command_time = time.time()  # Update last command time
+    last_command_time = time.time()
 
     if camera_id not in CAMERAS:
-        return {"error": "Invalid camera ID. Use 'cam1' or 'cam2'."}
+        return {"error": "Invalid camera ID."}
 
     if not (0 <= level <= 64):
         return {"error": "Zoom level must be between 0 and 64."}
