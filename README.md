@@ -2,20 +2,20 @@
 
 This repository contains two main components:
 
-1. A **FastAPI backend**, to be run on a Raspberry Pi connected to a Reolink PTZ camera, which handles camera control and video streaming.
-2. A **Dash-based frontend demo**, which connects to the Pi and lets you control the camera via a simple web interface.
+1. A **FastAPI backend**, running on a Raspberry Pi connected to a Reolink PTZ camera, handling camera control and live streaming with FFmpeg.
+2. A **Dash-based frontend app**, providing an easy web interface to control the camera remotely.
 
 ---
 
 ## 📸 Step 1 – Run the FastAPI backend on the Raspberry Pi
 
-The FastAPI app is responsible for controlling the Reolink camera and managing live streaming via MediaMTX.
+The FastAPI app is responsible for controlling the Reolink camera and managing the video stream using **FFmpeg** (no MediaMTX required).
 
-👉 **Follow the instructions in [`pi_manager/README.md`](pi_manager/README.md)** to:
+👉 **To set it up:**
 
-- Install MediaMTX on your Pi
-- Configure camera connection
-- Run the FastAPI server in the background
+- Install `ffmpeg` on the Pi.
+- Configure your `.env` file with the camera login details.
+- Launch the FastAPI server.
 
 Once running, the API will be accessible at:
 
@@ -23,16 +23,19 @@ Once running, the API will be accessible at:
 http://<pi_ip>:8000
 ```
 
-You can test it via Swagger UI:  
-`http://<pi_ip>:8000/docs`
+You can interact with the API via Swagger UI at:
+
+```
+http://<pi_ip>:8000/docs
+```
 
 ---
 
-## 💻 Step 2 – Run the Dash demo app (on your local machine)
+## 💻 Step 2 – Run the Dash frontend (on your local machine)
 
-This is the visualization and control interface for your camera.
+This is the visualization and remote control interface for your camera.
 
-### 1. Register the Raspberry Pi IP
+### 1. Set the Raspberry Pi IP
 
 Open the file:
 
@@ -40,17 +43,17 @@ Open the file:
 platform/app.py
 ```
 
-And replace the `PI_IP` variable with the IP address of your Raspberry Pi:
+And update the Pi IP address:
 
 ```python
-PI_IP = "http://<your-pi-ip>:8000"
+TARGET_IP = "<your-pi-ip>"
 ```
 
 ---
 
 ### 2. Install dependencies
 
-Make sure you’re in the `platform/` directory, then install the required Python packages:
+From the `platform/` folder, install Python packages:
 
 ```bash
 pip install -r requirements.txt
@@ -70,12 +73,13 @@ Then open your browser at:
 http://127.0.0.1:8050
 ```
 
-You should see the demo interface to control your camera via the FastAPI backend running on the Pi.
+You will be able to view the video stream and control the camera movements and zoom.
 
 ---
 
 ## ✅ Requirements
 
-- Raspberry Pi connected to Reolink PTZ camera
+- Raspberry Pi connected to a Reolink PTZ camera
 - Python 3.11+
-- Local machine for running the Dash demo
+- FFmpeg installed on the Raspberry Pi
+- Local machine to run the Dash frontend
