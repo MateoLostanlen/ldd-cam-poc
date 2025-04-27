@@ -1,20 +1,20 @@
 import dash
 import dash_bootstrap_components as dbc
 import requests
+import time
 from dash import Input, Output, State, dcc, html
 from dash_extensions import EventListener
 
-
 pyro_logo = "https://pyronear.org/img/logo_letters_orange.png"
+TARGET_IP = "192.168.1.28"
 
-TARGET_IP = "192.168.1.104"
+STREAM_URL = "http://91.134.47.14:8889/mateostream"
 
 # FastAPI server address
 FASTAPI_URL = f"http://{TARGET_IP}:8000"
 
 # Camera Selection
 CAMERAS = {"Camera 1": "cam1", "Camera 2": "cam2"}
-
 
 def Navbar():
     """Returns a Navbar with the Pyronear logo."""
@@ -30,8 +30,8 @@ def Navbar():
         className="mb-4",
     )
 
-
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
 app.layout = dbc.Container(
     [
         Navbar(),
@@ -45,7 +45,7 @@ app.layout = dbc.Container(
                                 [
                                     html.Iframe(
                                         id="video-stream",
-                                        src=f"http://{TARGET_IP}:8889/cam",
+                                        src=STREAM_URL,
                                         style={
                                             "position": "absolute",
                                             "top": "0",
@@ -80,7 +80,7 @@ app.layout = dbc.Container(
                                 style={
                                     "position": "relative",
                                     "height": "500px",
-                                    "width": f"{round(500 * 16 / 9)}px",  # 16:9 aspect ratio width for 500px height = ~889px
+                                    "width": f"{round(500 * 16 / 9)}px",  # 16:9 aspect ratio
                                     "overflow": "hidden",
                                     "margin": "auto",
                                 },
@@ -92,103 +92,74 @@ app.layout = dbc.Container(
                 ),
                 # CAMERA CONTROLS (RIGHT)
                 dbc.Col(
-                    [
-                        html.H5(
-                            "Stream & Camera Controls", className="text-center mb-3"
-                        ),
-                        html.Label("Select Camera:"),
-                        dcc.Dropdown(
-                            id="camera-select",
-                            options=[
-                                {"label": name, "value": cam_id}
-                                for name, cam_id in CAMERAS.items()
-                            ],
-                            value="cam1",
-                            clearable=False,
-                            className="mb-3",
-                        ),
-                        dbc.Button(
-                            "Start Stream",
-                            id="start-stream",
-                            color="success",
-                            className="mb-2 w-100",
-                        ),
-                        dbc.Button(
-                            "Stop Stream",
-                            id="stop-stream",
-                            color="danger",
-                            className="mb-2 w-100",
-                        ),
-                        dbc.Row(
-                            [
-                                dbc.Col(),
-                                dbc.Col(
-                                    dbc.Button(
-                                        "↑", id="move-up", color="primary", size="lg"
-                                    ),
-                                    width="auto",
-                                ),
-                                dbc.Col(),
-                            ],
-                            className="mb-2 text-center",
-                        ),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    dbc.Button(
-                                        "←", id="move-left", color="primary", size="lg"
-                                    ),
-                                    width="auto",
-                                ),
-                                dbc.Col(
-                                    dbc.Button(
-                                        "STOP",
-                                        id="stop-move",
-                                        color="danger",
-                                        size="lg",
-                                    ),
-                                    width="auto",
-                                ),
-                                dbc.Col(
-                                    dbc.Button(
-                                        "→", id="move-right", color="primary", size="lg"
-                                    ),
-                                    width="auto",
-                                ),
-                            ],
-                            className="mb-2 text-center",
-                        ),
-                        dbc.Row(
-                            [
-                                dbc.Col(),
-                                dbc.Col(
-                                    dbc.Button(
-                                        "↓", id="move-down", color="primary", size="lg"
-                                    ),
-                                    width="auto",
-                                ),
-                                dbc.Col(),
-                            ],
-                            className="mb-3 text-center",
-                        ),
-                        html.Label("Zoom Level:"),
-                        dcc.Slider(
-                            id="zoom-slider",
-                            min=0,
-                            max=64,
-                            step=1,
-                            marks={0: "0", 32: "32", 64: "64"},
-                            value=32,
-                        ),
-                        dbc.Button(
-                            "Set Zoom",
-                            id="set-zoom",
-                            color="success",
-                            className="mb-2 w-100",
-                        ),
-                    ],
-                    md=4,
-                ),
+                        [
+                            html.H5("Stream & Camera Controls", className="text-center mb-3"),
+
+                            html.Label("Select Camera:"),
+                            dcc.Dropdown(
+                                id="camera-select",
+                                options=[{"label": name, "value": cam_id} for name, cam_id in CAMERAS.items()],
+                                value="cam1",
+                                clearable=False,
+                                className="mb-3",
+                            ),
+
+                            html.Label("Move Speed (1-10):"),
+                            dcc.Slider(
+                                id="speed-slider",
+                                min=1, max=10, step=1, value=5,
+                                marks={1: "1", 5: "5", 10: "10"},
+                                className="mb-4",
+                            ),
+
+                            # Stream control buttons
+                            dbc.Row([
+                                dbc.Col(dbc.Button("Start Stream", id="start-stream", color="success", className="w-100"), width=6),
+                                dbc.Col(dbc.Button("Stop Stream", id="stop-stream", color="danger", className="w-100"), width=6),
+                            ], className="mb-3"),
+
+                            # Move controls
+                            html.Div([
+                                dbc.Row([
+                                    dbc.Col(),
+                                    dbc.Col(dbc.Button("↑", id="move-up", color="primary", size="sm"), width="auto"),
+                                    dbc.Col(),
+                                ], justify="center"),
+                                dbc.Row([
+                                    dbc.Col(dbc.Button("←", id="move-left", color="primary", size="sm"), width="auto"),
+                                    dbc.Col(dbc.Button("STOP", id="stop-move", color="danger", size="sm"), width="auto"),
+                                    dbc.Col(dbc.Button("→", id="move-right", color="primary", size="sm"), width="auto"),
+                                ], justify="center", className="my-2"),
+                                dbc.Row([
+                                    dbc.Col(),
+                                    dbc.Col(dbc.Button("↓", id="move-down", color="primary", size="sm"), width="auto"),
+                                    dbc.Col(),
+                                ], justify="center"),
+                            ], className="mb-4"),
+
+                            # Zoom control
+                            html.Label("Zoom Level:"),
+                            dcc.Slider(
+                                id="zoom-slider",
+                                min=0, max=64, step=1, value=32,
+                                marks={0: "0", 32: "32", 64: "64"},
+                                className="mb-2",
+                            ),
+                            dbc.Button("Set Zoom", id="set-zoom", color="success", className="mb-4 w-100"),
+
+                            # Map Button
+                            dbc.Button(
+                                "🗺️ Map", 
+                                id="map-button", 
+                                color="info", 
+                                size="sm", 
+                                style={"borderRadius": "50%", "width": "50px", "height": "50px", "fontSize": "20px"},
+                                className="d-block mx-auto"
+                            ),
+                        ],
+                        md=4,
+                    )
+
             ],
             className="mb-4",
         ),
@@ -198,15 +169,23 @@ app.layout = dbc.Container(
             style={"fontWeight": "bold"},
         ),
         html.Div(
+            id="timer-countdown",
+            className="text-center",
+            style={"fontWeight": "bold", "color": "red", "fontSize": "20px"},
+        ),
+        html.Div(
             id="click-coordinates",
             className="text-center",
             style={"fontWeight": "bold", "color": "green"},
         ),
         dcc.Store(id="click-coords"),
+        dcc.Store(id="stream-start-time"),
+        dcc.Interval(id="timer-interval", interval=1000, n_intervals=0),
     ],
     fluid=True,
 )
 
+# Client-side callback for click coordinates
 app.clientside_callback(
     """
     function(n_clicks) {
@@ -251,7 +230,6 @@ app.index_string = """
 </html>
 """
 
-
 # 📌 Function to Send API Requests
 def send_api_request(endpoint: str):
     try:
@@ -260,10 +238,9 @@ def send_api_request(endpoint: str):
     except requests.exceptions.RequestException:
         return "Error: Could not reach API server."
 
-
-# 📌 Combined Callback for Stream, Movement & Zoom
+# 📌 Callback for Stream, Movement & Zoom
 @app.callback(
-    Output("output-message", "children"),
+    [Output("output-message", "children"), Output("stream-start-time", "data")],
     [
         Input("start-stream", "n_clicks"),
         Input("stop-stream", "n_clicks"),
@@ -274,18 +251,22 @@ def send_api_request(endpoint: str):
         Input("stop-move", "n_clicks"),
         Input("set-zoom", "n_clicks"),
     ],
-    [State("camera-select", "value"), State("zoom-slider", "value")],
+    [
+        State("camera-select", "value"),
+        State("zoom-slider", "value"),
+        State("speed-slider", "value"),
+    ],
 )
 def control_camera(
-    start_stream, stop_stream, up, down, left, right, stop, zoom, camera_id, zoom_level
+    start_stream, stop_stream, up, down, left, right, stop, zoom,
+    camera_id, zoom_level, move_speed
 ):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return ""
+        return "", None
 
     button_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-    # Mapping buttons to API endpoints
     direction_map = {
         "move-up": "Up",
         "move-down": "Down",
@@ -295,25 +276,42 @@ def control_camera(
     }
 
     if button_id == "start-stream":
-        return send_api_request(f"/start_stream/{camera_id}")
+        return send_api_request(f"/start_stream/{camera_id}"), time.time()
 
     elif button_id == "stop-stream":
-        return send_api_request("/stop_stream")
+        return send_api_request("/stop_stream"), None
 
     elif button_id in direction_map:
         direction = direction_map[button_id]
-        return send_api_request(
-            f"/move/{camera_id}/{direction}"
-            if direction != "Stop"
-            else f"/stop/{camera_id}"
-        )
+        if direction != "Stop":
+            return send_api_request(f"/move/{camera_id}/{direction}/{move_speed}"), dash.no_update
+        else:
+            return send_api_request(f"/stop/{camera_id}"), dash.no_update
 
     elif button_id == "set-zoom":
-        return send_api_request(f"/zoom/{camera_id}/{zoom_level}")
+        return send_api_request(f"/zoom/{camera_id}/{zoom_level}"), dash.no_update
 
-    return ""
+    return "", None
 
+# 📌 Timer Countdown Callback
+@app.callback(
+    Output("timer-countdown", "children"),
+    Input("timer-interval", "n_intervals"),
+    State("stream-start-time", "data"),
+)
+def update_timer(n_intervals, stream_start_time):
+    if stream_start_time is None:
+        return ""
 
+    elapsed = time.time() - stream_start_time
+    remaining = max(0, 60 - int(elapsed))
+
+    if remaining <= 0:
+        return ""
+
+    return f"⏳ Stream will stop in {remaining} seconds..."
+
+# 📌 Show clicked coordinates
 @app.callback(
     Output("click-coordinates", "children"),
     Input("click-coords", "data"),
@@ -325,7 +323,6 @@ def show_coords(data):
     x_percent = round((data["offsetX"] / data["width"]) * 100, 2)
     y_percent = round((data["offsetY"] / data["height"]) * 100, 2)
     return f"Clicked at x={data['offsetX']}px ({x_percent}%), y={data['offsetY']}px ({y_percent}%)"
-
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8050)
