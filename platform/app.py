@@ -5,6 +5,9 @@ from dash import Input, Output, State, dcc, html
 import dash_leaflet as dl
 from dotenv import load_dotenv
 import os
+from utils import build_vision_polygon
+
+
 load_dotenv()
 
 CAM_USER = os.getenv("CAM_USER")
@@ -17,6 +20,12 @@ TARGET_IP = "192.168.1.28"
 STREAM_URL = f"{MEDIAMTX_SERVER_IP}:8889/{STREAM_NAME}"
 FASTAPI_URL = f"http://{TARGET_IP}:8000"
 CAMERAS = {"Camera 1": "cam1", "Camera 2": "cam2"}
+
+site_lat=48.8986
+site_lon=2.3760
+azimuth=45
+opening_angle=54
+dist_km=20
 
 def Navbar():
     return dbc.Navbar(
@@ -112,7 +121,6 @@ app.layout = dbc.Container(
                 # RIGHT: Camera select + map
                 dbc.Col(
                     [
-                        html.H5("Camera Selection", className="text-center mb-3"),
                         dcc.Dropdown(
                             id="camera-select",
                             options=[{"label": name, "value": cam_id} for name, cam_id in CAMERAS.items()],
@@ -144,11 +152,21 @@ app.layout = dbc.Container(
                             ),
                         ], justify="center", className="mb-4"),
 
-                        html.H6("Camera Location", className="text-center mb-2"),
-                        dl.Map(center=[48.8986, 2.3760], zoom=12, children=[
+                        # Updated map with vision cone
+                        dl.Map(center=[site_lat, site_lon], zoom=10, children=[
                             dl.TileLayer(),
-                            dl.Marker(position=[48.8986, 2.3760])
+                            dl.LayerGroup(id="vision-layer", children=[
+                                build_vision_polygon(
+                                    site_lat=site_lat,
+                                    site_lon=site_lon,
+                                    azimuth=azimuth,  
+                                    opening_angle=opening_angle,  
+                                    dist_km=dist_km,  
+                                )[0]
+                            ]),
+                            dl.Marker(position=[site_lat, site_lon])
                         ], style={"width": "100%", "height": "350px", "borderRadius": "10px"}),
+
                     ],
                     md=4,
                 ),
