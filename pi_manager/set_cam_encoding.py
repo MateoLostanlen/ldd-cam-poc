@@ -5,23 +5,23 @@ import json
 
 # Camera Credentials
 CAMERA_IP = "192.168.1.12"  # Change to your camera's IP
-USERNAME = "admin"          # Change to your username
-PASSWORD = "@Pyronear"      # Change to your password
+USERNAME = "admin"  # Change to your username
+PASSWORD = "@Pyronear"  # Change to your password
 
 # Which stream to update: "mainStream" or "subStream"
-STREAM_TO_UPDATE = "subStream"   # Options: "mainStream" or "subStream"
+STREAM_TO_UPDATE = "subStream"  # Options: "mainStream" or "subStream"
 
 # New Encoding Settings
-NEW_BITRATE = 512        # Main Stream: [1024,1536,2048,3072,4096,5120,6144,7168,8192]
-                         # Sub Stream: [64,128,160,192,256,384,512]
+NEW_BITRATE = 512  # Main Stream: [1024,1536,2048,3072,4096,5120,6144,7168,8192]
+# Sub Stream: [64,128,160,192,256,384,512]
 
-NEW_FRAMERATE = 10        # Main Stream: [25,22,20,18,16,15,12,10,8,6,4,2]
-                         # Sub Stream: [15,10,7,4]
+NEW_FRAMERATE = 10  # Main Stream: [25,22,20,18,16,15,12,10,8,6,4,2]
+# Sub Stream: [15,10,7,4]
 
-NEW_GOP = 4              # Keyframe interval (1 to 4)
+NEW_GOP = 4  # Keyframe interval (1 to 4)
 
-NEW_SIZE = "640*360"     # Main Stream options: "2304*1296", "2560*1440", "3840*2160"
-                         # Sub Stream: "640*360"
+NEW_SIZE = "640*360"  # Main Stream options: "2304*1296", "2560*1440", "3840*2160"
+# Sub Stream: "640*360"
 
 # ---------------------------------------------------------------
 
@@ -33,18 +33,16 @@ def get_token():
         {
             "cmd": "Login",
             "param": {
-                "User": {
-                    "Version": "0",
-                    "userName": USERNAME,
-                    "password": PASSWORD
-                }
-            }
+                "User": {"Version": "0", "userName": USERNAME, "password": PASSWORD}
+            },
         }
     ]
     headers = {"Content-Type": "application/json"}
-    
+
     try:
-        response = requests.post(url, json=payload, headers=headers, verify=False)  # Ignore SSL verification
+        response = requests.post(
+            url, json=payload, headers=headers, verify=False
+        )  # Ignore SSL verification
         data = response.json()
         if data[0]["code"] == 0:
             token = data[0]["value"]["Token"]["name"]
@@ -56,7 +54,7 @@ def get_token():
     except Exception as e:
         print("❌ Error:", e)
         return None
-    
+
 
 # Function to get current encoding settings
 def get_encoding_settings(token):
@@ -90,27 +88,23 @@ def set_stream_encoding(token):
         "frameRate": NEW_FRAMERATE if NEW_FRAMERATE else stream_settings["frameRate"],
         "bitRate": NEW_BITRATE if NEW_BITRATE else stream_settings["bitRate"],
         "gop": NEW_GOP if NEW_GOP else stream_settings["gop"],
-        "profile": stream_settings["profile"]
+        "profile": stream_settings["profile"],
     }
 
     url = f"https://{CAMERA_IP}/api.cgi?cmd=SetEnc&token={token}"
-    
+
     payload = [
         {
             "cmd": "SetEnc",
             "action": 0,
             "param": {
-                "Enc": {
-                    "channel": 0,
-                    "audio": 0,
-                    STREAM_TO_UPDATE: updated_stream
-                }
-            }
+                "Enc": {"channel": 0, "audio": 0, STREAM_TO_UPDATE: updated_stream}
+            },
         }
     ]
 
     headers = {"Content-Type": "application/json"}
-    
+
     try:
         response = requests.post(url, json=payload, headers=headers, verify=False)
         data = response.json()

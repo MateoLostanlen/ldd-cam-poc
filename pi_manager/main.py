@@ -6,6 +6,9 @@ import yaml
 import requests
 import urllib3
 from fastapi import FastAPI
+from dotenv import load_dotenv
+import os
+import json
 
 app = FastAPI()
 processes = {}  # Store FFmpeg processes
@@ -16,18 +19,54 @@ timer_thread = None  # Background thread for checking inactivity
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.DEBUG)
 
-# Load the YAML configuration file
-with open("config.yaml", "r") as file:
-    config = yaml.safe_load(file)
 
-# Access the data
-CAMERAS = config["cameras"]
-STREAMS = config["streams"]  # New structure: streams settings
+# Load ffmpeg config (YAML)
+with open("ffmpeg_config.yaml", "r") as file:
+    ffmpeg_config = yaml.safe_load(file)
+
+SRT_SETTINGS = ffmpeg_config["srt_settings"]
+FFMPEG_PARAMS = ffmpeg_config["ffmpeg_params"]
+
+
+# Load environment variables
+load_dotenv()
+
+CAM_USER = os.getenv("CAM_USER")
+CAM_PWD = os.getenv("CAM_PWD")
+MEDIAMTX_SERVER_IP = os.getenv("MEDIAMTX_SERVER_IP")
+
+# Load camera credentials
+with open("credentials.json", "r") as file:
+    credentials = json.load(file)
+
+# Build cameras dictionary
+CAMERAS = {
+    cam_id: {"ip": ip, "username": CAM_USER, "password": CAM_PWD}
+    for cam_id, ip in credentials["cameras"].items()
+}
+
+# Build streams dictionary using config values
+STREAMS = {
+    cam_id: {
+        "input_url": f"rtsp://{CAM_USER}:{CAM_PWD}@{cam_info['ip']}/h264Preview_01_main",
+        "output_url": (
+            f"srt://{MEDIAMTX_SERVER_IP}:{SRT_SETTINGS['port_start']}?"
+            f"pkt_size={SRT_SETTINGS['pkt_size']}&"
+            f"mode={SRT_SETTINGS['mode']}&"
+            f"latency={SRT_SETTINGS['latency']}&"
+            f"streamid={SRT_SETTINGS['streamid_prefix']}:{cam_id}"
+        ),
+    }
+    for cam_id, cam_info in CAMERAS.items()
+}
+
 
 class ReolinkCamera:
     """Class to control a Reolink camera."""
 
-    def __init__(self, ip_address: str, username: str, password: str, protocol: str = "https"):
+    def __init__(
+        self, ip_address: str, username: str, password: str, protocol: str = "https"
+    ):
         self.ip_address = ip_address
         self.username = username
         self.password = password
@@ -40,7 +79,13 @@ class ReolinkCamera:
     def move_camera(self, operation: str, speed: int = 10):
         """Moves the camera in a given direction."""
         url = self._build_url("PtzCtrl")
-        data = [{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": operation, "speed": speed}}]
+        data = [
+            {
+                "cmd": "PtzCtrl",
+                "action": 0,
+                "param": {"channel": 0, "op": operation, "speed": speed},
+            }
+        ]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -51,7 +96,15 @@ class ReolinkCamera:
     def zoom(self, position: int):
         """Adjusts the zoom level of the camera."""
         url = self._build_url("StartZoomFocus")
-        data = [{"cmd": "StartZoomFocus", "action": 0, "param": {"ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}}}]
+        data = [
+            {
+                "cmd": "StartZoomFocus",
+                "action": 0,
+                "param": {
+                    "ZoomFocus": {"channel": 0, "pos": position, "op": "ZoomPos"}
+                },
+            }
+        ]
         response = requests.post(url, json=data, verify=False)
         return response.json() if response.status_code == 200 else None
 
@@ -59,6 +112,7 @@ class ReolinkCamera:
 def is_process_running(proc):
     """Check if a process is still running."""
     return proc and proc.poll() is None
+
 
 def stop_any_running_stream():
     """Stops any currently running stream."""
@@ -70,6 +124,7 @@ def stop_any_running_stream():
             return cam_id
     return None
 
+
 def stop_stream_if_idle():
     """Background task that stops the stream if no command is received for 60 seconds."""
     global last_command_time
@@ -79,6 +134,7 @@ def stop_stream_if_idle():
             stopped_cam = stop_any_running_stream()
             if stopped_cam:
                 logging.info(f"Stream for {stopped_cam} stopped due to inactivity")
+
 
 # Start background thread
 timer_thread = threading.Thread(target=stop_stream_if_idle, daemon=True)
@@ -101,31 +157,47 @@ async def start_stream(camera_id: str):
     input_url = stream_info["input_url"]
     output_url = stream_info["output_url"]
 
-    command = [
-        "ffmpeg",
-        "-fflags", "discardcorrupt+nobuffer",  # Ignorer paquets corrompus, réduire bufferisation
-        "-flags", "low_delay",                 # Mode faible latence
-        "-rtsp_transport", "udp",               # RTSP en UDP (plus rapide mais risque de pertes)
-        "-i", input_url,                        # URL RTSP de la caméra
-        "-c:v", "libx264",                      # Encoder vidéo en H.264 (x264)
-        "-bf", "0",                              # Pas de B-frames (IP only) pour réduire la latence
-        "-b:v", "500k",                         # Bitrate vidéo à 500 kbps
-        "-r", "15",                             # Framerate à 10 fps
-        "-preset", "veryfast",                  # Preset x264 rapide (faible usage CPU)
-        "-tune", "zerolatency",                 # Optimisation x264 pour la latence minimale
-        "-s", "640x360",                        # Redimensionner la vidéo en 640x360
-        "-an",                                  # Supprimer l'audio
-        "-f", "mpegts",                         # Format de sortie MPEG-TS (nécessaire pour SRT)
-        output_url                              # URL de destination SRT
+    # Build ffmpeg command dynamically based on config
+    command = ["ffmpeg"]
+
+    if FFMPEG_PARAMS["discardcorrupt"]:
+        command += ["-fflags", "discardcorrupt+nobuffer"]
+    if FFMPEG_PARAMS["low_delay"]:
+        command += ["-flags", "low_delay"]
+
+    command += [
+        "-rtsp_transport",
+        FFMPEG_PARAMS["rtsp_transport"],
+        "-i",
+        input_url,
+        "-c:v",
+        FFMPEG_PARAMS["video_codec"],
+        "-bf",
+        str(FFMPEG_PARAMS["b_frames"]),
+        "-b:v",
+        FFMPEG_PARAMS["bitrate"],
+        "-r",
+        str(FFMPEG_PARAMS["framerate"]),
+        "-preset",
+        FFMPEG_PARAMS["preset"],
+        "-tune",
+        FFMPEG_PARAMS["tune"],
     ]
 
+    if FFMPEG_PARAMS["audio_disabled"]:
+        command.append("-an")
 
+    command += ["-f", FFMPEG_PARAMS["output_format"], output_url]
 
-    processes[camera_id] = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    processes[camera_id] = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     return {
         "message": f"Stream for {camera_id} started",
-        "previous_stream": (stopped_cam if stopped_cam else "No previous stream was running"),
+        "previous_stream": (
+            stopped_cam if stopped_cam else "No previous stream was running"
+        ),
     }
 
 
@@ -147,11 +219,12 @@ async def stream_status():
     global last_command_time
     last_command_time = time.time()
 
-    active_streams = [cam_id for cam_id, proc in processes.items() if is_process_running(proc)]
+    active_streams = [
+        cam_id for cam_id, proc in processes.items() if is_process_running(proc)
+    ]
     if active_streams:
         return {"active_streams": active_streams}
     return {"message": "No stream is running"}
-
 
 
 @app.post("/move/{camera_id}/{direction}/{speed}")

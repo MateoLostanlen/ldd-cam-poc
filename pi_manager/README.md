@@ -1,84 +1,98 @@
-# Reolink Camera Stream Controller
+# 🎥 Reolink Camera Stream Controller
 
-This FastAPI app lets you control Reolink cameras (PTZ, zoom) and manage live streams using [MediaMTX](https://github.com/bluenviron/mediamtx). It supports two cameras (`cam1` and `cam2`), and automatically stops inactive streams after 60 seconds.
+This FastAPI app lets you control Reolink cameras (PTZ, zoom) and **stream live video feeds directly using FFmpeg over SRT**.  
+There is **no MediaMTX server** involved anymore.
+
+It supports multiple cameras (`cam1`, `cam2`, etc.) and automatically stops inactive streams after 60 seconds.
 
 ---
 
 ## 🛠 Installation
 
-### 1. Install MediaMTX
+### 1. Install FFmpeg
 
-**For Linux (x86_64):**
-
-```bash
-wget https://github.com/bluenviron/mediamtx/releases/download/v1.11.3/mediamtx_v1.11.3_linux_amd64.tar.gz
-tar -xvzf mediamtx_v1.11.3_linux_amd64.tar.gz
-sudo mv mediamtx /usr/local/bin/
-```
-
-**For Raspberry Pi (ARM64):**
+Make sure FFmpeg is installed:
 
 ```bash
-wget https://github.com/bluenviron/mediamtx/releases/download/v1.11.3/mediamtx_v1.11.3_linux_arm64v8.tar.gz
-tar -xvzf mediamtx_v1.11.3_linux_arm64v8.tar.gz
-sudo mv mediamtx /usr/local/bin/
+sudo apt update
+sudo apt install ffmpeg
 ```
 
-### 2. Prepare MediaMTX Config Files
+---
 
-Make sure you have your MediaMTX configuration files for each camera:
+### 2. Prepare the Configuration Files
 
-- `cam1`: `/home/pi/ldd-cam-poc/pi_manager/mediamtx_1_main.yml`
-- `cam2`: `/home/pi/ldd-cam-poc/pi_manager/mediamtx_2_main.yml`
+You need:
 
-Here is an example:
+- A `.env` file (you must create it)
+- A `credentials.json` file (use your own, or the one from **pyro-engine**)
 
-```yml
-paths:
-  cam:
-    source: rtsp://admin:@Pyronear@169.254.40.1:554/h264Preview_01_main
-    sourceOnDemand: yes       # Fetch the source only when there's a viewer
-```
+The `ffmpeg_config.yaml` is already provided in this repository.
 
-You can test the config directly by running:
+---
+
+#### 📄 `.env`
+
+Create a `.env` file with:
 
 ```bash
-mediamtx /home/pi/ldd-cam-poc/pi_manager/mediamtx_1_main.yml
+CAM_USER=admin
+CAM_PWD=@Pyronear
+MEDIAMTX_SERVER_IP=YOUR_SERVER_PUBLIC_IP
 ```
+
+Replace `YOUR_SERVER_PUBLIC_IP` with your real public or private server IP address.
+
+---
+
+#### 📄 `credentials.json`
+
+Example structure:
+
+```json
+{
+  "cameras": {
+    "cam1": "169.254.40.1",
+    "cam2": "169.254.40.2"
+  }
+}
+```
+
+You can create your own `credentials.json`,  
+**or reuse the one from [pyro-engine](https://github.com/pyronear/pyro-engine)** if available.
+
+---
+
+#### 📄 `ffmpeg_config.yaml`
+
+The `ffmpeg_config.yaml` file is already included in the repository.  
+It contains all FFmpeg and SRT streaming parameters.  
+You can easily edit it to change bitrate, framerate, ports, etc.
 
 ---
 
 ## 🚀 Run the App
 
-Set config file to config.yaml
-```yaml
-cameras:
-  cam1:
-    ip: 169.254.40.1
-    username: login
-    password: "***"
-  cam2:
-    ip: 169.254.40.2
-    username: login
-    password: "***"
+Install the dependencies:
 
-config_files:
-  cam1: /home/pi/ldd-cam-poc/pi_manager/mediamtx_1_main.yml
-  cam2: /home/pi/ldd-cam-poc/pi_manager/mediamtx_2_main.yml
+```bash
+pip install -r requirements.txt
 ```
 
-Start the FastAPI server with:
+Start the FastAPI server:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-or run it background
+(Optional: run it inside a `screen` session)
 
 ```bash
 screen -S reolink-app
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+(Detach from screen with `Ctrl+A`, then `D`)
 
 ---
 
@@ -86,21 +100,29 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Stream Control
 
-- `POST /start_stream/{camera_id}` – Start stream for `cam1` or `cam2`
+- `POST /start_stream/{camera_id}` – Start streaming from a camera
 - `POST /stop_stream` – Stop any active stream
-- `GET /status` – Get the current stream status
+- `GET /status` – Check which stream (if any) is running
 
 ### Camera Control
 
-- `POST /move/{camera_id}/{direction}` – Move PTZ camera (`Up`, `Down`, `Left`, `Right`)
+- `POST /move/{camera_id}/{direction}/{speed}` – Move PTZ camera (`Up`, `Down`, `Left`, `Right`) at specified speed
 - `POST /stop/{camera_id}` – Stop camera movement
-- `POST /zoom/{camera_id}/{level}` – Set zoom level (0 to 64)
+- `POST /zoom/{camera_id}/{level}` – Zoom camera (0–64)
 
 ---
 
 ## 🔒 Notes
 
-- Cameras use HTTPS and disable SSL verification for API calls.
-- Only one stream can run at a time. Starting a new one will stop the previous.
-- Streams are stopped automatically after 60 seconds of inactivity.
+- The cameras use HTTPS. SSL certificate verification is disabled for Reolink API requests.
+- Only **one stream runs at a time** — starting a new stream will stop the previous one.
+- Streams are **automatically stopped after 60 seconds** of inactivity.
+
+
+---
+
+# 🛠️ Maintained By
+[Pyronear](https://pyronear.org/)
+
+---
 
