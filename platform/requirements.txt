@@ -1,2 +1,6 @@
-dash
+dash==2.15.0
 dash-bootstrap-components
+dash-leaflet
+requests
+python-dotenv
+geopy

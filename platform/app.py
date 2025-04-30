@@ -6,6 +6,9 @@ import dash_leaflet as dl
 from dotenv import load_dotenv
 import os
 from utils import build_vision_polygon
+from dash import ctx
+from dash.dependencies import ALL
+import datetime
 
 
 load_dotenv()
@@ -14,11 +17,14 @@ CAM_USER = os.getenv("CAM_USER")
 CAM_PWD = os.getenv("CAM_PWD")
 MEDIAMTX_SERVER_IP = os.getenv("MEDIAMTX_SERVER_IP")
 STREAM_NAME = os.getenv("STREAM_NAME")
+TARGET_IP = os.getenv("TARGET_IP")
 
 pyro_logo = "https://pyronear.org/img/logo_letters_orange.png"
-TARGET_IP = "192.168.1.28"
+
 STREAM_URL = f"{MEDIAMTX_SERVER_IP}:8889/{STREAM_NAME}"
 FASTAPI_URL = f"http://{TARGET_IP}:8081"
+
+
 # Dynamically fetch camera infos
 def fetch_cameras():
     try:
@@ -28,13 +34,17 @@ def fetch_cameras():
         cameras = {}
         for cam in data.get("cameras", []):
             name = cam.get("name", f"Camera {cam.get('id')}")
-            ip = cam.get("ip")
-            if name and ip:
-                cameras[name] = ip
+            if name:
+                cameras[name] = {
+                    "ip": cam.get("ip"),
+                    "poses": cam.get("poses", []),
+                    "azimuths": cam.get("azimuths", []),
+                }
         return cameras
     except Exception as e:
         print(f"Error fetching cameras: {e}")
         return {}
+
 
 # Create CAMERAS dictionary
 CAMERAS = fetch_cameras()
@@ -43,7 +53,7 @@ print("Loaded cameras:", CAMERAS)
 
 site_lat = 48.426746125557
 site_lon = 2.71087590966019
-azimuth = 45
+azimuth = 0
 opening_angle = 54
 dist_km = 15
 
@@ -82,54 +92,51 @@ small_button_style = {
 }
 
 app.layout = html.Div(
-
     [
         Navbar(),
-        
         html.Div(
-    [
-        html.Div(
-            id="stream-status",
+            [
+                html.Div(
+                    id="stream-status",
+                    style={
+                        "color": "white",
+                        "fontWeight": "bold",
+                        "fontSize": "16px",
+                        "paddingLeft": "16px",
+                        "height": "50px",
+                        "display": "flex",
+                        "alignItems": "center",
+                    },
+                ),
+                html.Button(
+                    "Fermer la levée de doute",
+                    id="close-doubt",
+                    n_clicks=0,
+                    style={
+                        "background": "none",
+                        "border": "1px solid white",
+                        "color": "white",
+                        "borderRadius": "8px",
+                        "padding": "6px 12px",
+                        "cursor": "pointer",
+                        "fontSize": "14px",
+                        "marginRight": "16px",
+                        "height": "36px",
+                    },
+                ),
+            ],
             style={
-                "color": "white",
-                "fontWeight": "bold",
-                "fontSize": "16px",
-                "paddingLeft": "16px",
+                "backgroundColor": "black",
                 "height": "50px",
+                "width": "100%",
+                "marginTop": "-25px",
+                "marginBottom": "8px",
+                "padding": "0",
                 "display": "flex",
+                "justifyContent": "space-between",
                 "alignItems": "center",
             },
         ),
-        html.Button(
-            "Fermer la levée de doute",
-            id="close-doubt",
-            n_clicks=0,
-            style={
-                "background": "none",
-                "border": "1px solid white",
-                "color": "white",
-                "borderRadius": "8px",
-                "padding": "6px 12px",
-                "cursor": "pointer",
-                "fontSize": "14px",
-                "marginRight": "16px",
-                "height": "36px",
-            },
-        ),
-    ],
-    style={
-        "backgroundColor": "black",
-        "height": "50px",
-        "width": "100%",
-        "marginTop": "-25px",
-        "marginBottom": "8px",
-        "padding": "0",
-        "display": "flex",
-        "justifyContent": "space-between",  
-        "alignItems": "center",           
-    },
-),
-
         dbc.Row(
             [
                 # LEFT: Stream + controls
@@ -246,7 +253,9 @@ app.layout = html.Div(
                                                 max=100,
                                                 step=10,
                                                 value=0,
-                                                marks={i: str(i) for i in range(0, 101, 10)},  # Show every 10
+                                                marks={
+                                                    i: str(i) for i in range(0, 101, 10)
+                                                },  # Show every 10
                                             ),
                                         ],
                                         style={
@@ -275,9 +284,10 @@ app.layout = html.Div(
                                                 max=100,
                                                 step=10,
                                                 value=0,
-                                                marks={i: str(i) for i in range(0, 101, 10)},  # Show every 10
+                                                marks={
+                                                    i: str(i) for i in range(0, 101, 10)
+                                                },  # Show every 10
                                             ),
-
                                         ],
                                         style={
                                             "border": "2px solid #098386",  # Teal border
@@ -289,7 +299,7 @@ app.layout = html.Div(
                                     width=6,
                                 ),
                             ],
-                            className="mt-4",
+                            className="mt-3",
                         ),
                     ],
                     md=8,
@@ -300,14 +310,17 @@ app.layout = html.Div(
                     [
                         html.Div(
                             dcc.Dropdown(
-                            id="camera-select",
-                            options=[
-                                {"label": name, "value": cam_id}
-                                for name, cam_id in CAMERAS.items()
-                            ],
-                            value=list(CAMERAS.values())[0] if CAMERAS else None,  # Pick first available camera
-                            clearable=False,
-                            className="mb-2",
+                                id="camera-select",
+                                options=[
+                                    {
+                                        "label": name,
+                                        "value": name,
+                                    }  # value is now the camera name
+                                    for name in CAMERAS.keys()
+                                ],
+                                value=list(CAMERAS.keys())[0] if CAMERAS else None,
+                                clearable=False,
+                                className="mb-2",
                                 style={
                                     "border": "none",  # No border for the dropdown itself
                                     "borderRadius": "8px",  # Still rounded inside
@@ -319,7 +332,7 @@ app.layout = html.Div(
                             style={
                                 "border": "2px solid #098386",  # <-- Border around the wrapper
                                 "borderRadius": "10px",  # <-- Round the corners
-                                "marginBottom": "16px",
+                                "marginBottom": "9px",
                             },
                         ),
                         # Start/Stop side by side with no background
@@ -361,7 +374,17 @@ app.layout = html.Div(
                                 ),
                             ],
                             justify="center",
-                            className="mb-4",
+                            className="mb-2",
+                        ),
+                        html.Div(
+                            id="pose-buttons",
+                            style={
+                                "display": "flex",
+                                "flexWrap": "wrap",
+                                "justifyContent": "center",
+                                "gap": "8px",
+                                "marginBottom": "9px",
+                            },
                         ),
                         # Updated map with vision cone
                         dl.Map(
@@ -396,15 +419,8 @@ app.layout = html.Div(
             ],
             className="mb-4",
         ),
-        html.Div(
-            id="output-message",
-            className="text-center mb-2",
-            style={"fontWeight": "bold", "display": "none"},
-        ),
         dcc.Interval(id="stream-timer", interval=1000, n_intervals=0, disabled=True),
         dcc.Store(id="detection-status", data="stopped"),
-
-
     ],
     style={"padding": "0", "margin": "0", "width": "100%", "height": "100%"},
 )
@@ -430,21 +446,16 @@ def send_api_request(endpoint: str):
 
 # Main Callback
 @app.callback(
-    Output("output-message", "children"),
-    [
-        Input("start-stream", "n_clicks"),
-        Input("stop-stream", "n_clicks"),
-        Input("move-up", "n_clicks"),
-        Input("move-down", "n_clicks"),
-        Input("move-left", "n_clicks"),
-        Input("move-right", "n_clicks"),
-        Input("stop-move", "n_clicks"),
-        Input("zoom-input", "value"),
-    ],
-    [
-        State("camera-select", "value"),
-        State("speed-input", "value"),
-    ],
+    Input("start-stream", "n_clicks"),
+    Input("stop-stream", "n_clicks"),
+    Input("move-up", "n_clicks"),
+    Input("move-down", "n_clicks"),
+    Input("move-left", "n_clicks"),
+    Input("move-right", "n_clicks"),
+    Input("stop-move", "n_clicks"),
+    Input("zoom-input", "value"),
+    State("camera-select", "value"),
+    State("speed-input", "value"),
 )
 def control_camera(
     start_stream,
@@ -460,9 +471,14 @@ def control_camera(
 ):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return ""
+        return
 
     button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    camera_info = CAMERAS.get(camera_id)
+    if not camera_info:
+        return
+    camera_ip = camera_info["ip"]
+
 
     direction_map = {
         "move-up": "Up",
@@ -473,36 +489,33 @@ def control_camera(
     }
 
     if button_id == "start-stream":
-        return send_api_request(f"/start_stream/{camera_id}")
+        send_api_request(f"/start_stream/{camera_ip}")
+
     elif button_id == "stop-stream":
-        return send_api_request("/stop_stream")
+        send_api_request("/stop_stream")
     elif button_id in direction_map:
         direction = direction_map[button_id]
         if direction != "Stop":
-            true_speed = int(move_speed / 10) + 1 
-            return send_api_request(f"/move/{camera_id}/{direction}/{true_speed}")
+            true_speed = int(move_speed / 10) + 1
+            send_api_request(f"/move/{camera_ip}?direction={direction}&speed={true_speed}")
         else:
-            return send_api_request(f"/stop/{camera_id}")
-    # Inside your control_camera callback
+            send_api_request(f"/stop/{camera_ip}")
     elif button_id == "zoom-input":
-        # Convert 0-100 scale to 0-41 scale
         true_zoom = int(zoom_level * 41 / 100)
-        return send_api_request(f"/zoom/{camera_id}/{true_zoom}")
+        send_api_request(f"/zoom/{camera_ip}/{true_zoom}")
 
 
-    return ""
 
-from dash import ctx
-import datetime
 
 start_time = None
+
 
 @app.callback(
     Output("stream-timer", "disabled"),
     Output("detection-status", "data"),
     Input("start-stream", "n_clicks"),
     Input("stop-stream", "n_clicks"),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def control_detection(start_clicks, stop_clicks):
     triggered = ctx.triggered_id
@@ -513,9 +526,10 @@ def control_detection(start_clicks, stop_clicks):
         return False, "running"  # Enable timer
     elif triggered == "stop-stream":
         start_time = None
-        return True, "stopped"   # Disable timer
+        return True, "stopped"  # Disable timer
 
     return dash.no_update, dash.no_update
+
 
 @app.callback(
     Output("stream-status", "children"),
@@ -527,19 +541,161 @@ def update_status(n, detection_status):
         elapsed = datetime.datetime.now() - start_time
         minutes, seconds = divmod(int(elapsed.total_seconds()), 60)
         timer_text = f"{minutes:02d}:{seconds:02d}"
-        return html.Div([
-            html.Span("🔴 Live stream", style={
-                "backgroundColor": "#f99",
-                "color": "black",
-                "borderRadius": "6px",
-                "padding": "4px 8px",
-                "marginRight": "8px",
-                "fontWeight": "bold",
-            }),
-            html.Span(f"Levée de doute en cours, la détection n'est plus active depuis {timer_text}")
-        ])
+        return html.Div(
+            [
+                html.Span(
+                    "🔴 Live stream",
+                    style={
+                        "backgroundColor": "#f99",
+                        "color": "black",
+                        "borderRadius": "6px",
+                        "padding": "4px 8px",
+                        "marginRight": "8px",
+                        "fontWeight": "bold",
+                    },
+                ),
+                html.Span(
+                    f"Levée de doute en cours, la détection n'est plus active depuis {timer_text}"
+                ),
+            ]
+        )
     else:
         return ""
+
+
+@app.callback(
+    Output("pose-buttons", "children"),
+    Input("camera-select", "value"),
+)
+def update_pose_buttons(camera_name):
+    if not camera_name:
+        return ""
+
+    camera_info = CAMERAS.get(camera_name)
+    if not camera_info:
+        return ""
+
+    buttons = []
+    poses = camera_info.get("poses", [])
+    azimuths = camera_info.get("azimuths", [])
+
+    for pose_id, azimuth in zip(poses, azimuths):
+        buttons.append(
+            html.Button(
+                f"{azimuth}°",  # <-- BUTTON TEXT (azimuth)
+                id={
+                    "type": "pose-button",
+                    "camera": camera_name,
+                    "index": pose_id,
+                },  # <-- include camera
+                n_clicks=0,
+                style={
+                    "background": "none",
+                    "border": "2px solid #098386",
+                    "borderRadius": "8px",
+                    "fontSize": "16px",
+                    "cursor": "pointer",
+                    "padding": "6px 12px",
+                    "color": "#098386",
+                },
+            )
+        )
+
+    return buttons
+
+
+
+
+
+
+
+@app.callback(
+    Input({"type": "pose-button", "camera": ALL, "index": ALL}, "n_clicks"),
+    State("camera-select", "value"),
+    prevent_initial_call=True,
+)
+def move_to_pose(n_clicks_list, camera_name):
+    triggered = ctx.triggered_id
+
+    if not triggered:
+        return
+
+    # triggered has fields: {'type': 'pose-button', 'camera': ..., 'index': ...}
+    pose_id = triggered["index"]
+    triggered_camera = triggered["camera"]
+
+    if triggered_camera != camera_name:
+        # Button belongs to a different camera, ignore
+        return
+
+    camera_info = CAMERAS.get(camera_name)
+    if not camera_info:
+        return
+
+    camera_ip = camera_info["ip"]
+
+    try:
+        response = requests.post(
+            f"{FASTAPI_URL}/move/{camera_ip}?pose_id={pose_id}&speed=50"
+        )
+        print(response.json())
+    except Exception as e:
+        print(f"Move to pose error: {e}")
+
+
+
+
+@app.callback(
+    Output("vision-layer", "children"),
+    Input("camera-select", "value"),
+    Input({"type": "pose-button", "camera": ALL, "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def update_cone(camera_name, n_clicks_list):
+    triggered = ctx.triggered_id
+    if not triggered or camera_name is None:
+        return dash.no_update
+
+    camera_info = CAMERAS.get(camera_name)
+    if not camera_info:
+        return dash.no_update
+
+    poses = camera_info.get("poses", [])
+    azimuths = camera_info.get("azimuths", [])
+
+    try:
+        # Cas 1 : Si changement de caméra (dropdown)
+        if triggered == "camera-select":
+            pose_id = poses[0]  # Première pose
+            pose_index = 0
+
+        # Cas 2 : Si clic sur un bouton de pose
+        else:
+            pose_id = triggered["index"]
+            pose_index = poses.index(pose_id)
+
+            # Envoyer la commande pour déplacer la caméra
+            camera_ip = camera_info["ip"]
+            response = requests.post(
+                f"{FASTAPI_URL}/move/{camera_ip}?pose_id={pose_id}&speed=50"
+            )
+            print(response.json())
+
+        # Dans les deux cas, mettre à jour le cône
+        new_azimuth = azimuths[pose_index]
+        cone, _ = build_vision_polygon(
+            site_lat=site_lat,
+            site_lon=site_lon,
+            azimuth=new_azimuth,
+            opening_angle=opening_angle,
+            dist_km=dist_km,
+        )
+        return [cone]
+
+    except (ValueError, IndexError, Exception) as e:
+        print(f"Update cone error: {e}")
+        return dash.no_update
+
 
 
 
