@@ -1,6 +1,8 @@
-dash==2.15.0
-dash-bootstrap-components
-dash-leaflet
+dash==3.0.3
+dash-bootstrap-components==2.0.1
+dash-extensions==2.0.4
+dash-leaflet==1.0.15
+dataclass-wizard==0.35.0
 requests
 python-dotenv
 geopy
